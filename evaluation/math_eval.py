@@ -114,6 +114,7 @@ def setup(args):
             tensor_parallel_size=len(available_gpus) // args.pipeline_parallel_size,
             pipeline_parallel_size=args.pipeline_parallel_size,
             trust_remote_code=True,
+            dtype="float16",
         )
         tokenizer = None
         if args.apply_chat_template:
