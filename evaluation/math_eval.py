@@ -16,7 +16,8 @@ from trajectory import *
 from data_loader import load_data
 from python_executor import PythonExecutor
 from model_utils import load_hf_lm_and_tokenizer, generate_completions
-
+import pandas as pd
+from clustering_pipeline import load_cluster_pipeline, predict_cluster, analyze_clusters
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -129,11 +130,23 @@ def setup(args):
             use_safetensors=args.use_safetensors,
         )
 
+    # Load cluster prediction pipeline if GSM8K is in the data list and clustering is enabled
+    cluster_pipeline = None
+    if "gsm8k" in args.data_names.lower() and args.enable_cluster_analysis:
+        try:
+            print("Loading cluster classification pipeline...")
+            # Load your cluster model
+            cluster_pipeline = load_cluster_pipeline(args.cluster_model_path)
+            print("Cluster classification pipeline loaded successfully.")
+        except Exception as e:
+            print(f"Warning: Failed to load cluster classification pipeline: {e}")
+            print("Will proceed without cluster classification.")
+
     # infer & eval
     data_list = args.data_names.split(",")
     results = []
     for data_name in data_list:
-        results.append(main(llm, tokenizer, data_name, args))
+        results.append(main(llm, tokenizer, data_name, args, cluster_pipeline))
 
     # add "avg" result to data_list and results
     data_list.append("avg")
@@ -148,6 +161,58 @@ def setup(args):
     print("\t".join(data_name.ljust(pad, " ") for data_name in data_list))
     print("\t".join([f"{result['acc']:.1f}".ljust(pad, " ") for result in results]))
 
+    # Print cluster statistics if available
+    for i, data_name in enumerate(data_list[:-1]):  # Skip the "avg" entry
+        if data_name.lower() == "gsm8k" and "cluster_stats" in results[i]:
+            print(f"\nGSM8K Cluster Statistics:")
+            cluster_stats = results[i]["cluster_stats"]
+            print(f"Overall Accuracy: {cluster_stats.get('overall', {}).get('accuracy', 0):.4f}")
+            print("Accuracy by Cluster:")
+            for cluster, stats in sorted(cluster_stats.items()):
+                if cluster != "overall":
+                    print(f"  Cluster {cluster}: {stats['accuracy']:.4f} ({stats['count']} samples)")
+            
+            # Generate visualization if matplotlib and seaborn are available
+            try:
+                import matplotlib.pyplot as plt
+                import seaborn as sns
+                
+                # Create a dataframe for visualization
+                viz_data = []
+                for cluster, stats in cluster_stats.items():
+                    if cluster != "overall":
+                        viz_data.append({
+                            "cluster": int(cluster),
+                            "accuracy": stats["accuracy"],
+                            "count": stats["count"]
+                        })
+                
+                if viz_data:
+                    viz_df = pd.DataFrame(viz_data)
+                    
+                    # Create accuracy by cluster bar chart
+                    plt.figure(figsize=(10, 6))
+                    sns.barplot(x="cluster", y="accuracy", data=viz_df)
+                    plt.title(f"GSM8K Accuracy by Cluster - {args.model_name_or_path}")
+                    plt.xlabel("Cluster")
+                    plt.ylabel("Accuracy")
+                    plt.ylim(0, 1)
+                    for i, row in enumerate(viz_data):
+                        plt.text(i, row["accuracy"] + 0.02, f"{row['accuracy']:.3f}", 
+                                ha="center", va="bottom")
+                        plt.text(i, row["accuracy"] / 2, f"n={row['count']}", 
+                                ha="center", va="center", color="white")
+                    
+                    # Save the plot
+                    plot_file = f"{args.output_dir}/gsm8k_cluster_accuracy_{args.model_name_or_path.replace('/', '_')}.png"
+                    plt.savefig(plot_file)
+                    plt.close()
+                    print(f"Cluster analysis plot saved to {plot_file}")
+            except ImportError:
+                print("Matplotlib or seaborn not available for visualization.")
+            except Exception as e:
+                print(f"Error creating visualization: {e}")
+
 
 def is_multi_choice(answer):
     for c in answer:
@@ -156,7 +221,7 @@ def is_multi_choice(answer):
     return True
 
 
-def main(llm, tokenizer, data_name, args):
+def main(llm, tokenizer, data_name, args, cluster_pipeline=None):
     examples, processed_samples, out_file = prepare_data(data_name, args)
     print("=" * 50)
     print("data:", data_name, " ,remain samples:", len(examples))
@@ -181,6 +246,14 @@ def main(llm, tokenizer, data_name, args):
         example["gt_ans"] = gt_ans
         full_prompt = construct_prompt(example, data_name, args)
 
+        # Predict cluster if GSM8K dataset and cluster_pipeline is provided
+        cluster = -1  # Default to -1 (unknown)
+        if data_name.lower() == "gsm8k" and cluster_pipeline is not None:
+            try:
+                cluster = predict_cluster(cluster_pipeline, example)
+            except Exception as e:
+                print(f"Error predicting cluster for example {idx}: {e}")
+
         if idx == args.start:
             print(full_prompt)
 
@@ -190,6 +263,7 @@ def main(llm, tokenizer, data_name, args):
             "gt_cot": gt_cot,
             "gt": gt_ans,
             "prompt": full_prompt,
+            "cluster": int(cluster)  # Add cluster information
         }
 
         # add remain fields
@@ -383,6 +457,11 @@ def main(llm, tokenizer, data_name, args):
         prompt_type=args.prompt_type,
         execute=True,
     )
+
+    # Analyze results by cluster if GSM8K
+    if data_name.lower() == "gsm8k":
+        cluster_stats = analyze_clusters(all_samples)
+        result_json["cluster_stats"] = cluster_stats
 
     # save outputs
     if len(processed_samples) < len(all_samples) and args.save_outputs:
