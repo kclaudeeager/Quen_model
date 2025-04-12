@@ -52,6 +52,17 @@ def parse_args():
         action="store_true",
         help="Few shot for multiple-choice questions, zero shot for others.",
     )
+    parser.add_argument(
+        "--enable_cluster_analysis",
+        action="store_true",
+        help="Enable cluster analysis for GSM8K dataset.",
+    )
+    parser.add_argument(
+        "--cluster_model_path",
+        type=str,
+        default="gsm8k_cluster_pipeline.pkl",
+        help="Path to the clustering model.",
+    )
     args = parser.parse_args()
     args.top_p = (
         1 if args.temperature == 0 else args.top_p
