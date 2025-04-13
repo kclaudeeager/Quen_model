@@ -18,6 +18,7 @@ from python_executor import PythonExecutor
 from model_utils import load_hf_lm_and_tokenizer, generate_completions
 import pandas as pd
 from clustering_pipeline import load_cluster_pipeline, predict_cluster, analyze_clusters
+import sys
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -140,13 +141,33 @@ def setup(args):
             use_fast_tokenizer=True,
             use_safetensors=args.use_safetensors,
         )
+        
+    # Create necessary directories
+    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(os.path.join(args.output_dir, "plots"), exist_ok=True)
+    
+    # Ensure cluster_model_path is absolute
+    if not os.path.isabs(args.cluster_model_path):
+        args.cluster_model_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            args.cluster_model_path
+        )
+
 
     # Load cluster prediction pipeline if GSM8K is in the data list and clustering is enabled
     cluster_pipeline = None
     if "gsm8k" in args.data_names.lower() and args.enable_cluster_analysis:
         try:
             print("Loading cluster classification pipeline...")
+            print(f"Looking for cluster model at: {args.cluster_model_path}")
             # Load your cluster model
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            if current_dir not in sys.path:
+                sys.path.append(current_dir)
+                
+            if not os.path.exists(args.cluster_model_path):
+                raise FileNotFoundError(f"Cluster model not found at {args.cluster_model_path}")
+                
             cluster_pipeline = load_cluster_pipeline(args.cluster_model_path)
             print("Cluster classification pipeline loaded successfully.")
         except Exception as e:
@@ -215,8 +236,14 @@ def setup(args):
                                 ha="center", va="center", color="white")
                     
                     # Save the plot
-                    plot_file = f"{args.output_dir}/gsm8k_cluster_accuracy_{args.model_name_or_path.replace('/', '_')}.png"
+                    plot_file = os.path.join(
+                        args.output_dir, 
+                        "plots", 
+                        f"gsm8k_cluster_accuracy_{args.model_name_or_path.replace('/', '_')}.png"
+                    )
                     plt.savefig(plot_file)
+                    plt.close()
+                    print(f"Cluster analysis plot saved to {plot_file}")
                     plt.close()
                     print(f"Cluster analysis plot saved to {plot_file}")
             except ImportError:
