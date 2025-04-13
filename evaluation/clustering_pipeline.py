@@ -127,6 +127,7 @@ def create_clustering_model(num_clusters=5, output_dir=None):
         
         # Create pipeline
         print("\nBuilding clustering pipeline...")
+        from clustering_pipeline import EmbeddingFeatureUnion
         pipeline = Pipeline([
             ('embedding_feature_union', EmbeddingFeatureUnion(embedder, scaler)),
             ('kmeans', kmeans)
