@@ -18,7 +18,7 @@ class EmbeddingFeatureUnion(BaseEstimator, TransformerMixin):
         self.embedder = embedder
         self.scaler = scaler
         # Store the model name during initialization
-        self.embedder_name = embedder.get_modules_name()
+        self.embedder_name = embedder._model_name if hasattr(embedder, '_model_name') else "all-MiniLM-L6-v2"
 
     def fit(self, X, y=None):
         # Fit the scaler on the structured features
