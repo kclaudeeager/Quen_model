@@ -122,17 +122,36 @@ def setup(args):
     # load model
     available_gpus = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
     if args.use_vllm:
-        llm = LLM(
-            model=args.model_name_or_path,
-            tensor_parallel_size=len(available_gpus) // args.pipeline_parallel_size,
-            pipeline_parallel_size=args.pipeline_parallel_size,
-            trust_remote_code=True,
-            dtype="float16",
-        )
-        tokenizer = None
-        if args.apply_chat_template:
-            tokenizer = AutoTokenizer.from_pretrained(
-                args.model_name_or_path, trust_remote_code=True
+        try:
+            # Configure vLLM parameters
+            tensor_parallel_size = max(1, len(available_gpus) // args.pipeline_parallel_size)
+            
+            llm = LLM(
+                model=args.model_name_or_path,
+                tensor_parallel_size=tensor_parallel_size,
+                pipeline_parallel_size=args.pipeline_parallel_size,
+                trust_remote_code=True,
+                dtype="float16",
+                gpu_memory_utilization=0.85,  # Add memory utilization parameter
+                max_model_len=2048,  # Add max model length
+                quantization=None,  # Explicitly set no quantization
+            )
+            tokenizer = None
+            if args.apply_chat_template:
+                tokenizer = AutoTokenizer.from_pretrained(
+                    args.model_name_or_path, 
+                    trust_remote_code=True,
+                    use_fast=True
+                )
+        except Exception as e:
+            print(f"Error initializing vLLM: {str(e)}")
+            print("Falling back to regular HF model loading...")
+            args.use_vllm = False
+            llm, tokenizer = load_hf_lm_and_tokenizer(
+                model_name_or_path=args.model_name_or_path,
+                load_in_half=True,
+                use_fast_tokenizer=True,
+                use_safetensors=args.use_safetensors,
             )
     else:
         llm, tokenizer = load_hf_lm_and_tokenizer(
