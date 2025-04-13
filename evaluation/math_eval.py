@@ -157,6 +157,7 @@ def setup(args):
     # Load cluster prediction pipeline if GSM8K is in the data list and clustering is enabled
     cluster_pipeline = None
     if "gsm8k" in args.data_names.lower() and args.enable_cluster_analysis:
+        print("Cluster analysis is enabled for GSM8K dataset.")
         try:
             print("Loading cluster classification pipeline...")
             print(f"Looking for cluster model at: {args.cluster_model_path}")
