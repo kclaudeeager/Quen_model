@@ -17,25 +17,27 @@ class EmbeddingFeatureUnion(BaseEstimator, TransformerMixin):
     def __init__(self, embedder, scaler=None):
         self.embedder = embedder
         self.scaler = scaler
+        # Store the model name during initialization
+        self.embedder_name = embedder.get_modules_name()
 
     def fit(self, X, y=None):
         # Fit the scaler on the structured features
         self.scaler.fit(X[['question_length', 'num_numbers', 'num_steps']].values)
         return self
+
     def __getstate__(self):
         """Custom serialization method"""
         state = self.__dict__.copy()
-        # Save the model name instead of the full embedder
-        state['embedder_name'] = self.embedder.get_config_dict()['model_name']
+        # Save just the model name
+        state['embedder_name'] = self.embedder_name
         state.pop('embedder')
         return state
     
     def __setstate__(self, state):
         """Custom deserialization method"""
-        # Restore the embedder from the saved name
-        embedder_name = state.pop('embedder_name')
         self.__dict__.update(state)
-        self.embedder = SentenceTransformer(embedder_name)
+        # Restore the embedder from the saved name
+        self.embedder = SentenceTransformer(self.embedder_name)
         
     def transform(self, X):
         # Get text embeddings
@@ -76,6 +78,11 @@ def create_clustering_model(num_clusters=5, output_dir=None):
         output_path = os.path.join(output_dir, "gsm8k_cluster_pipeline.pkl")
         stats_path = os.path.join(output_dir, "gsm8k_cluster_stats.csv")
         questions_path = os.path.join(output_dir, "gsm8k_clustered_questions.csv")
+        
+        print(f"Will save outputs to:")
+        print(f"- Model: {output_path}")
+        print(f"- Statistics: {stats_path}")
+        print(f"- Questions: {questions_path}")
         
         # Load the GSM8K dataset
         print("Loading GSM8K dataset...")
@@ -125,11 +132,7 @@ def create_clustering_model(num_clusters=5, output_dir=None):
             ('kmeans', kmeans)
         ])
         
-        # Save pipeline
-        print(f"Saving model to {output_path}")
-        with open(output_path, 'wb') as f:
-            pickle.dump(pipeline, f)
-        
+    
         # Save cluster statistics
         cluster_stats = df.groupby("cluster")[["question_length", "num_numbers", "num_steps"]].mean()
         print("\nCluster statistics:")
@@ -144,6 +147,16 @@ def create_clustering_model(num_clusters=5, output_dir=None):
         print(f"- Statistics: {stats_path}")
         print(f"- Questions: {questions_path}")
         
+         # Save pipeline
+        print(f"\nSaving model to {output_path}")
+        try:
+            with open(output_path, 'wb') as f:
+                pickle.dump(pipeline, f)
+            print("Model saved successfully")
+        except Exception as e:
+            print(f"Error saving model: {str(e)}")
+            raise
+        
         return pipeline
         
     except Exception as e:
@@ -151,6 +164,7 @@ def create_clustering_model(num_clusters=5, output_dir=None):
         import traceback
         traceback.print_exc()
         return None
+    
 # Load the clustering pipeline
 def load_cluster_pipeline(model_path):
     """Load the pretrained clustering model with robust error handling"""
