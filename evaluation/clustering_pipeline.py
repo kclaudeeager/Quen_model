@@ -10,6 +10,7 @@ from sklearn.cluster import KMeans
 from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator, TransformerMixin
 from datasets import load_dataset
+import os
 
 # Custom transformer to combine embeddings and structured features
 class EmbeddingFeatureUnion(BaseEstimator, TransformerMixin):
@@ -21,7 +22,21 @@ class EmbeddingFeatureUnion(BaseEstimator, TransformerMixin):
         # Fit the scaler on the structured features
         self.scaler.fit(X[['question_length', 'num_numbers', 'num_steps']].values)
         return self
-
+    def __getstate__(self):
+        """Custom serialization method"""
+        state = self.__dict__.copy()
+        # Save the model name instead of the full embedder
+        state['embedder_name'] = self.embedder.get_config_dict()['model_name']
+        state.pop('embedder')
+        return state
+    
+    def __setstate__(self, state):
+        """Custom deserialization method"""
+        # Restore the embedder from the saved name
+        embedder_name = state.pop('embedder_name')
+        self.__dict__.update(state)
+        self.embedder = SentenceTransformer(embedder_name)
+        
     def transform(self, X):
         # Get text embeddings
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -47,86 +62,117 @@ def extract_features(example):
         "final_answer": a.split("####")[-1].strip() if "####" in a else a
     }
 
-def create_clustering_model(num_clusters=5):
-    print("Creating GSM8K question clustering model...")
-    
-    # Load the GSM8K dataset
-    dataset = load_dataset("openai/gsm8k", "main")
-    
-    # Apply the feature extraction function
-    df = pd.DataFrame([extract_features(ex) for ex in dataset["train"]])
-    
-    print(f"Loaded {len(df)} training examples")
-    
-    # Initialize the SentenceTransformer model
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    
-    embedder = SentenceTransformer("all-MiniLM-L6-v2", device=device)
-    
-    # Scale the structured features
-    scaler = StandardScaler()
-    
-    # Create embeddings and structured features
-    print("Creating embeddings...")
-    df["embedding"] = embedder.encode(df["question"].tolist(), show_progress_bar=True).tolist()
-    
-    # Select structured features
-    structured_features = df[["question_length", "num_numbers", "num_steps"]].values
-    scaled_features = scaler.fit_transform(structured_features)
-    
-    # Combine with embeddings
-    embedding_matrix = np.array(df["embedding"].tolist())
-    X_combined = np.hstack([embedding_matrix, scaled_features])
-    
-    # Perform clustering
-    print(f"Clustering data into {num_clusters} clusters...")
-    kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
-    df["cluster"] = kmeans.fit_predict(X_combined)
-    
-    # Get examples from each cluster
-    for c in sorted(df["cluster"].unique()):
-        print(f"\nCluster {c}:")
-        examples = df[df["cluster"] == c]["question"].sample(2).values
-        for example in examples:
-            print(f"- {example[:100]}...")
-    
-    # Create a pipeline that can predict clusters for new questions
-    print("\nBuilding clustering pipeline...")
-    pipeline = Pipeline([
-        ('embedding_feature_union', EmbeddingFeatureUnion(embedder, scaler)),
-        ('kmeans', kmeans)
-    ])
-    
-    # Save the pipeline
-    output_path = "gsm8k_cluster_pipeline.pkl"
-    with open(output_path, 'wb') as f:
-        pickle.dump(pipeline, f)
-    
-    print(f"Clustering model saved to {output_path}")
-    
-    # Save cluster statistics
-    cluster_stats = df.groupby("cluster")[["question_length", "num_numbers", "num_steps"]].mean()
-    print("\nCluster statistics:")
-    print(cluster_stats)
-    
-    cluster_stats.to_csv("gsm8k_cluster_stats.csv")
-    
-    # Save clustered questions
-    df.to_csv("gsm8k_clustered_questions.csv", index=False)
-    
-    return pipeline
-
-# Load the clustering pipeline
-def load_cluster_pipeline(model_path="gsm8k_cluster_pipeline.pkl"):
-    """Load the pretrained clustering model."""
+def create_clustering_model(num_clusters=5, output_dir=None):
+    """Create and save the clustering model with proper path handling and error checking"""
     try:
+        print("Creating GSM8K question clustering model...")
+        
+        # Set up output directory
+        if output_dir is None:
+            output_dir = os.path.dirname(os.path.abspath(__file__))
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Define output paths
+        output_path = os.path.join(output_dir, "gsm8k_cluster_pipeline.pkl")
+        stats_path = os.path.join(output_dir, "gsm8k_cluster_stats.csv")
+        questions_path = os.path.join(output_dir, "gsm8k_clustered_questions.csv")
+        
+        # Load the GSM8K dataset
+        print("Loading GSM8K dataset...")
+        dataset = load_dataset("openai/gsm8k", "main")
+        
+        # Apply the feature extraction function
+        df = pd.DataFrame([extract_features(ex) for ex in dataset["train"]])
+        print(f"Loaded {len(df)} training examples")
+        
+        # Initialize the SentenceTransformer model
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {device}")
+        
+        embedder = SentenceTransformer("all-MiniLM-L6-v2", device=device)
+        
+        # Scale the structured features
+        scaler = StandardScaler()
+        
+        # Create embeddings and structured features
+        print("Creating embeddings...")
+        df["embedding"] = embedder.encode(df["question"].tolist(), show_progress_bar=True).tolist()
+        
+        # Select and scale structured features
+        structured_features = df[["question_length", "num_numbers", "num_steps"]].values
+        scaled_features = scaler.fit_transform(structured_features)
+        
+        # Combine with embeddings
+        embedding_matrix = np.array(df["embedding"].tolist())
+        X_combined = np.hstack([embedding_matrix, scaled_features])
+        
+        # Perform clustering
+        print(f"Clustering data into {num_clusters} clusters...")
+        kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
+        df["cluster"] = kmeans.fit_predict(X_combined)
+        
+        # Print cluster examples
+        for c in sorted(df["cluster"].unique()):
+            print(f"\nCluster {c}:")
+            examples = df[df["cluster"] == c]["question"].sample(min(2, len(df[df["cluster"] == c]))).values
+            for example in examples:
+                print(f"- {example[:100]}...")
+        
+        # Create pipeline
+        print("\nBuilding clustering pipeline...")
+        pipeline = Pipeline([
+            ('embedding_feature_union', EmbeddingFeatureUnion(embedder, scaler)),
+            ('kmeans', kmeans)
+        ])
+        
+        # Save pipeline
+        print(f"Saving model to {output_path}")
+        with open(output_path, 'wb') as f:
+            pickle.dump(pipeline, f)
+        
+        # Save cluster statistics
+        cluster_stats = df.groupby("cluster")[["question_length", "num_numbers", "num_steps"]].mean()
+        print("\nCluster statistics:")
+        print(cluster_stats)
+        cluster_stats.to_csv(stats_path)
+        
+        # Save clustered questions
+        df.to_csv(questions_path, index=False)
+        
+        print(f"\nOutputs saved to:")
+        print(f"- Model: {output_path}")
+        print(f"- Statistics: {stats_path}")
+        print(f"- Questions: {questions_path}")
+        
+        return pipeline
+        
+    except Exception as e:
+        print(f"Error creating clustering model: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+# Load the clustering pipeline
+def load_cluster_pipeline(model_path):
+    """Load the pretrained clustering model with robust error handling"""
+    try:
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+            
         with open(model_path, 'rb') as f:
             pipeline = pickle.load(f)
-        print(f"Clustering model loaded from {model_path}")
+            
+        # Verify pipeline components
+        if not hasattr(pipeline, 'named_steps'):
+            raise ValueError("Loaded object is not a valid scikit-learn pipeline")
+            
+        if 'embedding_feature_union' not in pipeline.named_steps:
+            raise ValueError("Pipeline is missing embedding_feature_union step")
+            
+        print(f"Successfully loaded clustering model from {model_path}")
         return pipeline
-    except FileNotFoundError:
-        print(f"Error: Clustering model not found at {model_path}")
+        
+    except Exception as e:
+        print(f"Error loading clustering model: {str(e)}")
         return None
 
 def predict_cluster(pipeline, example):
