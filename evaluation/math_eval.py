@@ -524,6 +524,39 @@ def main(llm, tokenizer, data_name, args, cluster_pipeline=None):
     # save outputs
     if len(processed_samples) < len(all_samples) and args.save_outputs:
         save_jsonl(all_samples, out_file)
+         
+        autorace_dir = os.path.join(args.output_dir, 'autorace', 'data')
+        os.makedirs(autorace_dir, exist_ok=True)
+        autorace_data = []
+        for sample in all_samples:
+            # For each prediction in the sample
+            for i, (pred, code) in enumerate(zip(sample['pred'], sample['code'])):
+                entry = {
+                    "idx": sample["idx"],
+                    "question": sample["question"],
+                    "prediction": pred,
+                    "ground_truth": sample["gt"],
+                    "reasoning_step": code,
+                    "reference_step": sample.get("gt_cot", ""),
+                    "is_correct": pred == sample["gt"],
+                    "dataset": data_name,
+                    "model": args.model_name_or_path,
+                    "prompt_type": args.prompt_type,
+                    "sample_idx": i,  # In case of multiple samples per question
+                }
+                autorace_data.append(entry)
+        
+        # Save autorace format
+        model_name_safe = args.model_name_or_path.replace('/', '_')
+        autorace_file = os.path.join(
+            autorace_dir,
+            f"{data_name}_{model_name_safe}_{args.prompt_type}.json"
+        )
+        
+        with open(autorace_file, "w", encoding="utf-8") as f:
+            json.dump(autorace_data, f, indent=2, ensure_ascii=False)
+        print(f"Saved autorace format data to: {autorace_file}")
+
 
     result_json["time_use_in_second"] = time_use
     result_json["time_use_in_minite"] = (
