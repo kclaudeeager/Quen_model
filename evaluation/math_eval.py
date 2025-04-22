@@ -525,9 +525,11 @@ def main(llm, tokenizer, data_name, args, cluster_pipeline=None):
     if len(processed_samples) < len(all_samples) and args.save_outputs:
         save_jsonl(all_samples, out_file)
          
-        #Saving into autorace folder
-        autorace_dir = os.path.join('autorace', 'data')
+        # Saving into autorace data structure
+        autorace_dir = os.path.join('data', args.model_name_or_path.replace('/', '_'))
         os.makedirs(autorace_dir, exist_ok=True)
+        
+        # Convert to autorace format
         autorace_data = []
         for sample in all_samples:
             # For each prediction in the sample
@@ -535,29 +537,27 @@ def main(llm, tokenizer, data_name, args, cluster_pipeline=None):
                 entry = {
                     "idx": sample["idx"],
                     "question": sample["question"],
-                    "prediction": pred,
+                    "answer": pred,  # Changed to match autorace format
+                    "reasoning_chain": code,  # Changed to match autorace format
                     "ground_truth": sample["gt"],
-                    "reasoning_step": code,
-                    "reference_step": sample.get("gt_cot", ""),
-                    "is_correct": pred == sample["gt"],
+                    "reference_solution": sample.get("gt_cot", ""),
                     "dataset": data_name,
                     "model": args.model_name_or_path,
                     "prompt_type": args.prompt_type,
-                    "sample_idx": i,  # In case of multiple samples per question
+                    "sample_idx": i,
                 }
                 autorace_data.append(entry)
         
-        # Save autorace format
-        model_name_safe = args.model_name_or_path.replace('/', '_')
+        # Save in autorace expected format and location
         autorace_file = os.path.join(
             autorace_dir,
-            f"{data_name}_{model_name_safe}_{args.prompt_type}.json"
+            f"{data_name}.jsonl"  # Changed to .jsonl and simplified naming
         )
         
-        with open(autorace_file, "w", encoding="utf-8") as f:
-            json.dump(autorace_data, f, indent=2, ensure_ascii=False)
+        # Save as jsonlines instead of json
+        with jsonlines.open(autorace_file, mode='w') as writer:
+            writer.write_all(autorace_data)
         print(f"Saved autorace format data to: {autorace_file}")
-
 
     result_json["time_use_in_second"] = time_use
     result_json["time_use_in_minite"] = (
