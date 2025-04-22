@@ -28,7 +28,10 @@ PROMPT_TYPE_DICT = {
     'logical_deduction': 'logic_auto'
 }
 
-OPENAI_KEY = os.getenv('OPENAI_API_KEY', "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")
+OPENAI_KEY = os.getenv('OPENAI_API_KEY', input('Please input your OpenAI API key: '))
+if OPENAI_KEY is None:
+    raise ValueError('Please set your OpenAI API key in the environment variable OPENAI_API_KEY or input it manually.')
+
 client = OpenAI(
     api_key = OPENAI_KEY
 )
