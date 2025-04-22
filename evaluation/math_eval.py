@@ -525,7 +525,8 @@ def main(llm, tokenizer, data_name, args, cluster_pipeline=None):
     if len(processed_samples) < len(all_samples) and args.save_outputs:
         save_jsonl(all_samples, out_file)
          
-        autorace_dir = os.path.join(args.output_dir, 'autorace', 'data')
+        #Saving into autorace folder
+        autorace_dir = os.path.join('autorace', 'data')
         os.makedirs(autorace_dir, exist_ok=True)
         autorace_data = []
         for sample in all_samples:
