@@ -28,12 +28,25 @@ PROMPT_TYPE_DICT = {
     'logical_deduction': 'logic_auto'
 }
 
-OPENAI_KEY = os.getenv('OPENAI_API_KEY', input('Please input your OpenAI API key: '))
-if OPENAI_KEY is None:
-    raise ValueError('Please set your OpenAI API key in the environment variable OPENAI_API_KEY or input it manually.')
+def load_api_key():
+    """Load OpenAI API key from environment variable or .env file"""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()  # Load from .env file if exists
+    except ImportError:
+        pass  # dotenv not installed
+        
+    api_key = os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        raise ValueError(
+            "OpenAI API key not found. Please set OPENAI_API_KEY environment variable "
+            "or create a .env file with OPENAI_API_KEY=your_key"
+        )
+    return api_key
+
 
 client = OpenAI(
-    api_key = OPENAI_KEY
+    api_key =load_api_key()
 )
 
 def generate(prompt):
