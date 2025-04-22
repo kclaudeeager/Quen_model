@@ -19,6 +19,7 @@ from model_utils import load_hf_lm_and_tokenizer, generate_completions
 import pandas as pd
 from clustering_pipeline import load_cluster_pipeline, predict_cluster, analyze_clusters
 import sys
+import jsonlines
 
 def parse_args():
     parser = argparse.ArgumentParser()
