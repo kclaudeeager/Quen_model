@@ -532,7 +532,10 @@ def main(llm, tokenizer, data_name, args, cluster_pipeline=None):
         
         # Convert to autorace format
         autorace_data = []
-        for sample in all_samples:
+        # Randomly select 100 samples
+        random_samples = random.sample(all_samples, min(100, len(all_samples)))
+        
+        for sample in random_samples:  # Limit to 100 random samples
             # For each prediction in the sample
             for i, (pred, code) in enumerate(zip(sample['pred'], sample['code'])):
                 entry = {
