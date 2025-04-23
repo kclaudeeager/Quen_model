@@ -527,7 +527,7 @@ def main(llm, tokenizer, data_name, args, cluster_pipeline=None):
         save_jsonl(all_samples, out_file)
          
         # Saving into autorace data structure
-        autorace_dir = os.path.join('autorace', 'data', args.model_name_or_path.replace('/', '_'))
+        autorace_dir = os.path.join('autorace', 'data', 'eval_model')
         os.makedirs(autorace_dir, exist_ok=True)
         
         # Convert to autorace format
