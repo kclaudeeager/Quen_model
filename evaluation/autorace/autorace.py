@@ -130,21 +130,61 @@ def autorace_criterion(dataset:str = 'aqua', example_wrong_chains:str = 'EXAMPLE
     with open('prompt.json', 'w') as f:
         json.dump(prompt, f)
 
-def autorace_score(output_log_path:str):
-    '''report autorace score'''
-    #load the autorace evaluation
-    with jsonlines.open(output_log_path, mode='r') as reader:
-        autorace = list(reader)
-
-    #calculate the score
-    total = len(autorace)
+def autorace_score(output_log_path: str):
+    '''report autorace score with robust JSON handling'''
+    
+    # Initialize counters
+    total = 0
     incorrect = 0
-    for i in range(total):
-        if 'INCORRECT' in autorace[i]['evaluation_result'][0]:
-            incorrect += 1
+    
+    try:
+        # Read line by line with error handling
+        with jsonlines.open(output_log_path, mode='r') as reader:
+            for line in reader:
+                try:
+                    total += 1
+                    if 'evaluation_result' in line and line['evaluation_result']:
+                        if 'INCORRECT' in line['evaluation_result'][0]:
+                            incorrect += 1
+                except Exception as e:
+                    print(f"Error processing line: {e}")
+                    continue
+    except Exception as e:
+        print(f"Error reading file {output_log_path}: {e}")
+        return
+    
+    if total == 0:
+        print("No valid entries found in the file")
+        return
+        
+    score = (total - incorrect) / total
+    print(f'Total samples: {total}')
+    print(f'Incorrect samples: {incorrect}')
+    print(f'AutoRace score: {score:.2f}')
+    return score
 
-    print(f'autorace score: {(total - incorrect) / total:.2f}')
-
+def sanitize_for_json(text):
+    """Clean text to ensure it's JSON-safe"""
+    if isinstance(text, str):
+        # Remove or replace problematic characters
+        text = text.replace('\u0000', '')  # Remove null bytes
+        text = text.replace('\n', ' ')     # Replace newlines with spaces
+        text = text.encode('utf-8', 'ignore').decode('utf-8')  # Remove invalid UTF-8
+    return text
+# Update the saving part in autorace_evaluation:
+def save_results(results, output_log_path):
+    """Save results with sanitization"""
+    sanitized_results = []
+    for result in results:
+        sanitized_result = {
+            key: sanitize_for_json(value) if isinstance(value, str) else value
+            for key, value in result.items()
+        }
+        sanitized_results.append(sanitized_result)
+    
+    with jsonlines.open(output_log_path, mode='w') as writer:
+        writer.write_all(sanitized_results)
+        
 def autorace_evaluation(
     dataset: str = "gsm8k", 
     reasoning_model: str = "eval_model",
@@ -195,10 +235,16 @@ def autorace_evaluation(
         prompt = prompts[PROMPT_TYPE_DICT[dataset]].format(raw_question, reasoning_chain)  
         prompt = prompt.replace('..', '.')
         evaluation_result = generate(prompt)
-        tmp = {'index': index, 'evaluation_result': evaluation_result, 'question': raw_question, 'reasoning_chain': reasoning_chain, 'answer': data.loc[index, 'answer'], 'prompt': prompt}    
+        tmp = {
+            'index': index,
+            'evaluation_result': evaluation_result,
+            'question': raw_question,
+            'reasoning_chain': reasoning_chain,
+            'answer': data.loc[index, 'answer'],
+            'prompt': prompt
+        }
         results.append(tmp)
-        with jsonlines.open(output_log_path, mode='w') as writer:
-            writer.write_all(results)
+        save_results(results, output_log_path)
     
     #calculate the score
     autorace_score(output_log_path)
